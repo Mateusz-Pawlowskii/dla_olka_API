@@ -31,7 +31,8 @@ urlpatterns += [
     path('link/original/', core_views.OriginalLink.as_view(), name='original_link'),
     path('image/list', core_views.ImageList.as_view(), name='image_list'),
     path('link/expiring/generate', core_views.GenerateExpiringLink.as_view(), name='generate_expiring_link'),
-    path('link/expiring/get', core_views.ExpiringLink.as_view(), name='get_expiring_link')
+    path('link/expiring/get', core_views.ExpiringLink.as_view(), name='get_expiring_link'),
+    path('link/res/first', core_views.ResolutionPicture.as_view(), name='resolution-picture')
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root = settings.MEDIA_ROOT)
