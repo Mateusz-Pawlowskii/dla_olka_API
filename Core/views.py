@@ -7,7 +7,7 @@ from django.contrib.auth.views import LoginView
 from datetime import datetime, timedelta
 from django.contrib.auth.models import User
 from .models import Tier, Image, Token
-from django.http import JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse
 from .serializers import ImageSerializer
 from rest_framework import views
 from django.utils.crypto import get_random_string
@@ -153,30 +153,39 @@ class GenerateExpiringLink(views.APIView):
             expiration_time = max(min(int(expiration_time), 30000), 300)
             image_token = request.GET.get('image')
             image = Image.objects.get(id=image_token)
-            site_domain = request.get_host()
-            image_url = f'{site_domain}/media/{image.image.url}'
+            image_url = os.path.normpath(os.path.join(settings.BASE_DIR, image.image.name))
             serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
             expiration_datetime = datetime.utcnow() + timedelta(seconds=expiration_time)
             expiration_timestamp = int(expiration_datetime.timestamp())
-            signed_url = serializer.dumps(image_url + f"?expires={expiration_timestamp}", salt=settings.SECRET_KEY)
-            link = request.get_host() + reverse('get_expiring_link') + f'?token={signed_url}'
+            signed_expiration = serializer.dumps(f"?expires={expiration_timestamp}", salt=settings.SECRET_KEY)
+            signed_image_url = serializer.dumps(f"?id={image_url}", salt=settings.SECRET_KEY)
+            link = request.get_host() + reverse('get_expiring_link') + f'?expires={signed_expiration}' + f'&id={signed_image_url}'
             return JsonResponse({"result":"success", "link" : f'{link}'}, status = 200)
         else:
             return JsonResponse({"result": "error","message": "Service not availabe for your tier"}, status = 400)
 
 class ExpiringLink(views.APIView):
     def get(self, request):
-        signed_token = request.GET.get('token', '')
-        expiration_time = request.GET.get('expires', '')
-        site_domain = request.get_host()
+        signed_expiration_time = request.GET.get('expires', '')
+        signed_image_url = request.GET.get('id', '')
         try:
             serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
-            image_url = serializer.loads(signed_token, salt=settings.SECRET_KEY)
-
+            image_url = serializer.loads(signed_image_url, salt=settings.SECRET_KEY)
+            image_url = image_url.split('id=')[1]
+            expiration_time = serializer.loads(signed_expiration_time, salt=settings.SECRET_KEY)
+            expiration_time = int(expiration_time.split('expires=')[1])
+            
         except SignatureExpired:
             return JsonResponse({"result" : "error", "message" : "The link has expired."}, status = 400)
 
         except BadSignature:
             return JsonResponse({"result" : "error", "message" : "The link is invalid."}, status = 400)
-
-        return JsonResponse({"result" : "success", "link" : f"{image_url}"}, status = 200)
+        
+        if int(expiration_time) > int(datetime.utcnow().timestamp()):
+            print("!!!!!!!!!", expiration_time)
+            print("!!!!!!!!!", int(datetime.utcnow().timestamp()))
+            return FileResponse(open(image_url, 'rb'), content_type='image/jpeg')
+        elif int(expiration_time) < int(datetime.utcnow().timestamp()):
+            return JsonResponse({"result": "error","message": "Link expired"}, status = 400)
+        else:
+            return JsonResponse({"result": "error","message": "Error unknown"}, status = 400)
