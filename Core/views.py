@@ -1,19 +1,19 @@
-import time
 from PIL import Image as pil
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 import os
-from urllib.parse import urlparse, urlunparse
 from django.contrib.auth import authenticate
 from django.contrib.auth.views import LoginView
 from datetime import datetime, timedelta
 from django.contrib.auth.models import User
 from .models import Tier, Image, Token
-from django.http import FileResponse, HttpResponse, JsonResponse
+from django.http import FileResponse, JsonResponse
 from .serializers import ImageSerializer
 from rest_framework import views
 from django.utils.crypto import get_random_string
 from rest_framework.parsers import MultiPartParser
 from django.conf import settings
-from itsdangerous import TimestampSigner, URLSafeTimedSerializer, BadSignature, SignatureExpired
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from django.urls import reverse
 
 
@@ -32,7 +32,8 @@ class TokenLoginView(LoginView):
             return JsonResponse({'token': token.key})
         else:
             return JsonResponse({'error': 'Invalid credentials'}, status=400)
-        
+
+@method_decorator(csrf_exempt, name='dispatch')
 class ImageUpload(views.APIView):
     serializer_class = ImageSerializer
     parser_classes = [MultiPartParser]
@@ -48,14 +49,14 @@ class ImageUpload(views.APIView):
         kwargs['context'] = self.get_serializer_context()
         return self.serializer_class(*args, **kwargs)
 
-    def get(self, request):
+    def post(self, request):
         token_key = request.GET.get('token')
         token = Token.objects.get(key=token_key)
         user = User.objects.get(token=token)
         if token:
             title = request.GET.get('title')
             image_file = request.data["image"]
-            image = Image.objects.create(image=image_file, user=user, title=title)
+            Image.objects.create(image=image_file, user=user, title=title)
             return JsonResponse({"result": "success","message": "Image uploaded"}, status= 200)
         else:
             return JsonResponse({"result": "error","message": "Json decoding error"}, status= 400)
@@ -87,27 +88,6 @@ class OriginalLink(views.APIView):
             return JsonResponse({"result": "error","message": "Service not availabe for your tier"}, status= 400)
 
 class ResolutionPicture(views.APIView):
-    # def generate_presigned_url(self, image_data, height_pixels, image_url, expiration_seconds=3600):
-    #     signer = TimestampSigner(settings.SECRET_KEY)
-    #     expiration_timestamp = int(time.time()) + expiration_seconds
-    #     signed_timestamp = signer.sign(str(expiration_timestamp))
-
-    #     query_params = {'h': str(height_pixels), 'expires': signed_timestamp}
-    #     print(query_params)
-
-    #     query_string = ''
-    #     for key, value in query_params.items():
-    #         query_string += f'{key}={value}&'
-
-    #     query_string = query_string[:-1]
-    #     print(query_string)
-
-    #     parsed_url = urlparse(image_url)
-    #     new_url_parts = (parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, query_string, parsed_url.fragment)
-    #     new_url = urlunparse(new_url_parts)
-
-    #     return new_url
-
     def get(self, request):
         token_key = request.GET.get('token')
         token = Token.objects.get(key=token_key)
@@ -131,16 +111,12 @@ class ResolutionPicture(views.APIView):
                 new_width = (width * height) // old_height
                 new_size = (int(new_width), int(height))
                 resized_img = img.resize(new_size)
-                new_image_path = os.path.join(settings.MEDIA_ROOT, "resized_image.jpg")
+                new_image_path = os.path.join(settings.MEDIA_ROOT, f"{user.id}_{res}_resized_image.jpg")
                 resized_img.save(new_image_path, 'JPEG')
         except:
             return JsonResponse({"result": "error","message": "Could not open file"}, status = 400)
-        with open(new_image_path, 'rb') as f:
-            image_data = f.read()
-            image_url = request.build_absolute_uri(image.image.url)
-            # new_image_url = self.generate_presigned_url(image_data, height, image_url,)
         site_domain = request.get_host()
-        return JsonResponse({'url': f'{site_domain}/media/resized_image.jpg'})
+        return JsonResponse({'url': f'{site_domain}/media/{user.id}_{res}_resized_image.jpg'})
 
 class GenerateExpiringLink(views.APIView):
     def get(self, request):
@@ -153,7 +129,7 @@ class GenerateExpiringLink(views.APIView):
             expiration_time = max(min(int(expiration_time), 30000), 300)
             image_token = request.GET.get('image')
             image = Image.objects.get(id=image_token)
-            image_url = os.path.normpath(os.path.join(settings.BASE_DIR, image.image.name))
+            image_url = os.path.normpath(os.path.join(settings.MEDIA_ROOT, image.image.name))
             serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
             expiration_datetime = datetime.utcnow() + timedelta(seconds=expiration_time)
             expiration_timestamp = int(expiration_datetime.timestamp())
@@ -182,8 +158,6 @@ class ExpiringLink(views.APIView):
             return JsonResponse({"result" : "error", "message" : "The link is invalid."}, status = 400)
         
         if int(expiration_time) > int(datetime.utcnow().timestamp()):
-            print("!!!!!!!!!", expiration_time)
-            print("!!!!!!!!!", int(datetime.utcnow().timestamp()))
             return FileResponse(open(image_url, 'rb'), content_type='image/jpeg')
         elif int(expiration_time) < int(datetime.utcnow().timestamp()):
             return JsonResponse({"result": "error","message": "Link expired"}, status = 400)
