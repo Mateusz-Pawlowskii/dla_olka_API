@@ -1,11 +1,5 @@
-import json
-import os
-from io import BytesIO
-
 from django.contrib.auth.models import User
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
-from PIL import Image as pil
 from rest_framework import status
 from rest_framework.test import APITestCase
 
