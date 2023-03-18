@@ -1,5 +1,5 @@
 staticfiles/
-mediafiles/
+media/
 show.html
 
 # Byte-compiled / optimized / DLL files

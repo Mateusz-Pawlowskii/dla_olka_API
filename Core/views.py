@@ -2,6 +2,7 @@ from PIL import Image as pil
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 import os
+from rest_framework import status
 from django.contrib.auth import authenticate
 from django.contrib.auth.views import LoginView
 from datetime import datetime, timedelta
@@ -29,9 +30,9 @@ class TokenLoginView(LoginView):
             except:
                 token = Token(user=user, key=get_random_string(length=40))
                 token.save()
-            return JsonResponse({'token': token.key})
+            return JsonResponse({'token': token.key}, status = status.HTTP_200_OK)
         else:
-            return JsonResponse({'error': 'Invalid credentials'}, status=400)
+            return JsonResponse({'error': 'Invalid credentials'}, status=status.HTTP_404_NOT_FOUND)
 
 @method_decorator(csrf_exempt, name='dispatch')
 class ImageUpload(views.APIView):
@@ -51,12 +52,20 @@ class ImageUpload(views.APIView):
 
     def post(self, request):
         token_key = request.GET.get('token')
-        token = Token.objects.get(key=token_key)
+        try:
+            token = Token.objects.get(key=token_key)
+        except:
+            return JsonResponse({"result": "error",
+                    "message": "Wrong identifiacation token, use login view to recieve proper token"}, status= 400)
         user = User.objects.get(token=token)
         if token:
             title = request.GET.get('title')
             image_file = request.data["image"]
-            Image.objects.create(image=image_file, user=user, title=title)
+            filename= image_file.name
+            if '.' in filename and filename.rsplit('.', 1)[1].lower() in ["jpg","png"]:
+                Image.objects.create(image=image_file, user=user, title=title)
+            else:
+                return JsonResponse({"result": "error","message": "Wrong file extension, should be either png or jpg"}, status= 400)
             return JsonResponse({"result": "success","message": "Image uploaded"}, status= 200)
         else:
             return JsonResponse({"result": "error","message": "Json decoding error"}, status= 400)
@@ -64,7 +73,11 @@ class ImageUpload(views.APIView):
 class ImageList(views.APIView):
     def get(self, request):
         token_key = request.GET.get('token')
-        token = Token.objects.get(key=token_key)
+        try:
+            token = Token.objects.get(key=token_key)
+        except:
+            return JsonResponse({"result": "error",
+                    "message": "Wrong identifiacation token, use login view to recieve proper token"}, status= 400)
         user = User.objects.get(token=token)
         images = Image.objects.filter(user=user)
         response = {"result":"list"}
@@ -75,12 +88,19 @@ class ImageList(views.APIView):
 class OriginalLink(views.APIView):
     def get(self, request):
         token_key = request.GET.get('token')
-        token = Token.objects.get(key=token_key)
+        try:
+            token = Token.objects.get(key=token_key)
+        except:
+            return JsonResponse({"result": "error",
+                    "message": "Wrong identifiacation token, use login view to recieve proper token"}, status= 400)
         user = User.objects.get(token=token)
         tier = Tier.objects.get(users=user)
         if tier.original_link:
             image_token = request.GET.get('image')
-            image = Image.objects.get(id=image_token)
+            try:
+                image = Image.objects.get(id=image_token)
+            except:
+                return JsonResponse({"result": "error","message": "Wrong image id, use list enpoint to get proper id"}, status= 400)
             site_domain = request.get_host()
             image_url = image.image.url
             return JsonResponse({"result":"success", "link" : f'{site_domain}{image_url}'}, status=200)
@@ -90,7 +110,11 @@ class OriginalLink(views.APIView):
 class ResolutionPicture(views.APIView):
     def get(self, request):
         token_key = request.GET.get('token')
-        token = Token.objects.get(key=token_key)
+        try:
+            token = Token.objects.get(key=token_key)
+        except:
+            return JsonResponse({"result": "error",
+                    "message": "Wrong identifiacation token, use login view to recieve proper token"}, status= 400)
         user = User.objects.get(token=token)
         tier = Tier.objects.get(users=user)
         res = request.GET.get('resolution_number')
@@ -103,7 +127,10 @@ class ResolutionPicture(views.APIView):
         else:
             return JsonResponse({"result": "error","message": "Wrong resolution number, choose either 1, 2 or 3"}, status = 400)
         image_token = request.GET.get('image')
-        image = Image.objects.get(id=image_token)
+        try:
+            image = Image.objects.get(id=image_token)
+        except:
+            return JsonResponse({"result": "error","message": "Wrong image id, use list enpoint to get proper id"}, status= 400)
         image_path = os.path.join(settings.MEDIA_ROOT, image.image.name.split("/")[-1])
         try:
             with pil.open(image_path) as img:
@@ -121,14 +148,24 @@ class ResolutionPicture(views.APIView):
 class GenerateExpiringLink(views.APIView):
     def get(self, request):
         token_key = request.GET.get('token')
-        token = Token.objects.get(key=token_key)
+        try:
+            token = Token.objects.get(key=token_key)
+        except:
+            return JsonResponse({"result": "error",
+                    "message": "Wrong identifiacation token, use login view to recieve proper token"}, status= 400)
         user = User.objects.get(token=token)
         tier = Tier.objects.get(users=user)
         if tier.expiring_link:
             expiration_time = request.GET.get('expires', '')
-            expiration_time = max(min(int(expiration_time), 30000), 300)
+            try:
+                expiration_time = max(min(int(expiration_time), 30000), 300)
+            except:
+                return JsonResponse({"result": "error","message": "Expiration time should be a number of seconds without non-numeric characters"}, status= 400)
             image_token = request.GET.get('image')
-            image = Image.objects.get(id=image_token)
+            try:
+                image = Image.objects.get(id=image_token)
+            except:
+                return JsonResponse({"result": "error","message": "Wrong image id, use list enpoint to get proper id"}, status= 400)
             image_url = os.path.normpath(os.path.join(settings.MEDIA_ROOT, image.image.name))
             serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
             expiration_datetime = datetime.utcnow() + timedelta(seconds=expiration_time)

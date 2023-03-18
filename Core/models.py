@@ -11,7 +11,7 @@ from django_extensions.db.models import (
 
 # Create your models here.
 
-image_fs = FileSystemStorage(location='media/', base_url="/")
+image_fs = FileSystemStorage(location='media/', base_url="/media/")
 
 class Token(models.Model):
     key = models.CharField(max_length=40, unique=True)
