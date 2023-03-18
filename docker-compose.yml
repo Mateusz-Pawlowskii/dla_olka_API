@@ -17,7 +17,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: backend/docker/docker_files/Dockerfile_app
+      dockerfile: docker/docker_files/Dockerfile_app
     platform: linux/amd64
     restart: unless-stopped
     ports:
